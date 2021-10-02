@@ -40,6 +40,11 @@ def on_connect(client, userdata, flags, rc):
         print("subscribe to " + subscribeTopic)
         client.subscribe(subscribeTopic)
 
+    for i in deviceList:
+        subscribeTopic = "home/" + i + "/sensors/health"
+        print("subscribed to healthcheck on " + subscribeTopic)
+        client.subscribe(subscribeTopic)
+
 # we have the address, and the mean, and the rssi
 location = {}
 
@@ -51,6 +56,10 @@ informations = { "98063ced6b53": "Montre Quentin",
 # 10 s for location information fadein, 
 # windowed time
 fadeintime = 10 
+
+# last health check for the device
+lasthealthCheck = {}
+presence = {}
 
 ## remember the last relevant information for each sender
 class EnqueuedPositions:
@@ -90,6 +99,19 @@ ble = re.compile("BLE,ADDR=([0-9a-f]+),RSSI=([-]?\\d+),ADVDATA=(.*)$")
 def on_message(client, userdata, msg):
    global location
    try:
+
+      # healthcheck ?
+      if msg.topic[-len("health"):] == "health":
+          e = msg.topic.split("/")[1]
+          lasthealthCheck[e] = time.time()
+
+      # evaluate device presence
+      timeEvaluation = time.time()
+      for i in lasthealthCheck:
+          presence[i] = True
+          if timeEvaluation - lasthealthCheck[i] > 3:
+              presence[i] = False
+
       decoded_topic = topicre.match(msg.topic)
       if not decoded_topic:
           return
@@ -140,7 +162,9 @@ def on_message(client, userdata, msg):
 
           c.add(station, channel, rssi)
           senderInformations[sndr] = c
-          client2.publish(INDOOR + "/" + sndr + "/last10", str(c.summarize()))
+          s = c.summarize()
+          s["presence"] = presence
+          client2.publish(INDOOR + "/" + sndr + "/last10", str(s))
 
           client2.publish(INDOOR + "/" + sndr + "/" + station + "/" + channel, str(rssi))
           if station in deviceLocation:
